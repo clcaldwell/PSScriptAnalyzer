@@ -9,8 +9,10 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
+using System.Xml.Linq;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
+using System.Xml;
 
 namespace Microsoft.Windows.PowerShell.ScriptAnalyzer.Commands
 {
@@ -204,6 +206,30 @@ namespace Microsoft.Windows.PowerShell.ScriptAnalyzer.Commands
         private object settings;
 
         private bool stopProcessing;
+
+        /// <summary>
+        /// Allows to specify output file format.
+        /// </summary>
+        [ValidateSet("Checkstyle", IgnoreCase = true)]
+        [Parameter(Mandatory = false)]
+        public string OutputFormat
+        {
+            get { return outputFormat; }
+            set { outputFormat = value; }
+        }
+        private string outputFormat;
+
+        /// <summary>
+        /// OutputFile: specify output file.
+        /// </summary>
+        [Parameter(Mandatory = false)]
+        [ValidateNotNull]
+        public string OutputFile
+        {
+            get { return outputFile; }
+            set { outputFile = value; }
+        }
+        private string outputFile;
 
 #if !PSV3
         /// <summary>
@@ -457,6 +483,41 @@ namespace Microsoft.Windows.PowerShell.ScriptAnalyzer.Commands
                             throw new ArgumentOutOfRangeException(nameof(diagnostic.Severity), $"Severity '{diagnostic.Severity}' is unknown");
                     }
                 }
+                
+                if (outputFormat == "CheckStyle")
+                {
+                    ConsoleHostHelper.DisplayMessageUsingSystemProperties(Host, "WarningForegroundColor", "WarningBackgroundColor", "OutputFormat Selected");
+
+                    XmlDocument xmlDoc = NewXmlDocument();
+                        
+                    xmlDoc.AppendChild(
+                        xmlDoc.CreateXmlDeclaration("1.0","utf-8",null)
+                    );
+
+                    xmlNodelist checkstyleRoot = xmldoc.CreateNode("element","checkstyle",null);
+                        checkstyleRoot.SetAttribute("version", "4.3");
+
+                    foreach (DiagnosticRecord diagnostic in diagnosticRecords)
+                    {
+                        XmlNodeList fileNode = checkstyleRoot.AppendChild(
+                            xmlDoc.CreateElement("file")
+                        );
+                        fileNode.SetAttribute("name", this.ScriptName);
+
+                            XmlNodeList errorNode = fileNode.AppendChild(
+                                xmlDoc.CreateElement("error")
+                            );
+                            errorNode.SetAttribute("line", diagnostic.Line);
+                            errorNode.SetAttribute("column", diagnostic.Column);
+                            errorNode.SetAttribute("severity", diagnostic.Severity);
+                            errorNode.SetAttribute("message", diagnostic.Message);
+                            errorNode.SetAttribute("source", diagnostic.RuleName);
+                    }
+
+                    xmlDoc.AppendChild(checkstyleRoot);
+                    xmlDoc.Save(outputFile);
+                }
+            }
 
                 if (ReportSummary.IsPresent)
                 {
@@ -479,12 +540,12 @@ namespace Microsoft.Windows.PowerShell.ScriptAnalyzer.Commands
                         }
                     }
                 }
-            }
 
             if (EnableExit.IsPresent)
             {
                 this.Host.SetShouldExit(diagnosticRecords.Count());
             }
+
         }
 
         private void ProcessPath()
